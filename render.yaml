@@ -1,26 +1,26 @@
-# Render Blueprint for the API. Database: use Neon/Supabase (pgvector enabled) or Render Postgres.
+# Render Blueprint for Athena AI Backend API.
 services:
   - type: web
-    name: chatgpt-platform-api
+    name: athena-ai-api
     runtime: docker
     dockerContext: ./backend
     dockerfilePath: ./backend/Dockerfile
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
-        sync: false
+        sync: false        # Neon/Supabase PostgreSQL or internal SQLite
       - key: SECRET_KEY
         generateValue: true
       - key: FRONTEND_URL
-        sync: false        # e.g. https://your-app.vercel.app
+        sync: false        # e.g. https://<your-firebase-project>.web.app
       - key: COOKIE_SECURE
         value: "true"
       - key: LLM_API_KEY
-        sync: false
+        sync: false        # Your Groq API Key
       - key: LLM_BASE_URL
-        value: https://router.huggingface.co/v1
+        value: https://api.groq.com/openai/v1
       - key: LLM_MODEL
-        value: Qwen/Qwen2.5-72B-Instruct
+        value: llama-3.3-70b-versatile
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
