@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+:root[data-theme="dark"] {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --bg: 33 33 33;
+  --panel: 23 23 23;
+  --raised: 47 47 47;
+  --line: 64 64 64;
+  --fg: 236 236 236;
+  --muted: 160 160 160;
+  --accent: 16 163 127;
+  --danger: 239 98 98;
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: 255 255 255;
+  --panel: 247 247 248;
+  --raised: 240 240 242;
+  --line: 224 224 228;
+  --fg: 32 33 36;
+  --muted: 107 114 128;
+  --accent: 13 138 108;
+  --danger: 200 50 50;
+  color-scheme: light;
+}
+
+html, body { height: 100%; }
+body { @apply bg-bg text-fg font-sans antialiased; }
+:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
+::selection { background: rgb(var(--accent) / 0.35); }
+
+@layer components {
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+  .btn-primary { @apply btn bg-accent text-white hover:brightness-110; }
+  .btn-ghost { @apply btn text-fg hover:bg-raised; }
+  .btn-outline { @apply btn border border-line text-fg hover:bg-raised; }
+  .btn-danger { @apply btn border border-danger/50 text-danger hover:bg-danger/10; }
+  .input { @apply w-full rounded-lg border border-line bg-panel px-3 py-2 text-sm text-fg placeholder:text-muted focus:border-accent focus:outline-none; }
+  .label { @apply mb-1 block text-sm text-muted; }
+}
+
+/* Markdown */
+.md { line-height: 1.7; }
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { margin: 0.75em 0; }
+.md ul { list-style: disc; padding-left: 1.4em; margin: 0.75em 0; }
+.md ol { list-style: decimal; padding-left: 1.4em; margin: 0.75em 0; }
+.md li { margin: 0.25em 0; }
+.md h1, .md h2, .md h3 { font-weight: 600; margin: 1.2em 0 0.5em; line-height: 1.3; }
+.md h1 { font-size: 1.4em; } .md h2 { font-size: 1.2em; } .md h3 { font-size: 1.05em; }
+.md a { color: rgb(var(--accent)); text-decoration: underline; }
+.md blockquote { border-left: 3px solid rgb(var(--line)); padding-left: 1em; color: rgb(var(--muted)); margin: 0.75em 0; }
+.md code:not(pre code) { font-family: var(--font-mono); font-size: 0.88em; background: rgb(var(--raised)); padding: 0.15em 0.4em; border-radius: 6px; }
+.md table { border-collapse: collapse; margin: 0.75em 0; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid rgb(var(--line)); padding: 0.4em 0.75em; text-align: left; }
+.md th { background: rgb(var(--raised)); }
+.md pre { margin: 0; }
+.md pre code { font-family: var(--font-mono); font-size: 0.85em; display: block; padding: 1em; overflow-x: auto; background: transparent !important; }
+
+.cursor::after { content: "▍"; margin-left: 2px; animation: blink 1s steps(2) infinite; color: rgb(var(--accent)); }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .cursor::after { animation: none; } }

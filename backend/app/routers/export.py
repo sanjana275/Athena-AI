@@ -1,0 +1,177 @@
+import io
+import re
+import unicodedata
+from fastapi import APIRouter, Response
+from pydantic import BaseModel
+from pptx import Presentation
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+
+router = APIRouter(prefix="/export", tags=["export"])
+
+
+class ExportRequest(BaseModel):
+    title: str = "Athena Presentation"
+    markdown: str = ""
+
+
+def clean_markdown_inline(text: str) -> str:
+    """Strip bold/italic markdown artifacts for clean slide text."""
+    text = re.sub(r"\*\*(.*?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.*?)\*", r"\1", text)
+    text = re.sub(r"`(.*?)`", r"\1", text)
+    text = re.sub(r"\[(.*?)\]\([^)]+\)", r"\1", text)
+    return text.strip()
+
+
+def sanitize_filename(name: str) -> str:
+    cleaned = re.sub(r"[^\w\s-]", "", name).strip()
+    return re.sub(r"[-\s]+", "_", cleaned)[:50] or "Athena_Presentation"
+
+
+@router.post("/pptx")
+def generate_pptx(req: ExportRequest):
+    prs = Presentation()
+    # 16:9 widescreen presentation
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+
+    doc_title = clean_markdown_inline(req.title) or "Athena AI Presentation"
+    md_content = req.markdown.strip()
+
+    # Split markdown by top-level headers (#, ##, ###) or horizontal dividers (---)
+    raw_sections = re.split(r"\n(?=#{1,3}\s+|---\s*\n)", md_content)
+    sections = [s.strip() for s in raw_sections if s.strip()]
+
+    # 1. Title Slide (Slide 1)
+    title_slide = prs.slides.add_slide(blank_layout)
+
+    # Accent decorative top bar
+    bar = title_slide.shapes.add_shape(
+        1,  # MSO_SHAPE.RECTANGLE
+        Inches(0), Inches(0), Inches(13.333), Inches(0.2)
+    )
+    bar.fill.solid()
+    bar.fill.fore_color.rgb = RGBColor(99, 102, 241)  # Indigo
+    bar.line.fill.background()
+
+    # Title box
+    title_box = title_slide.shapes.add_textbox(Inches(1.2), Inches(2.2), Inches(11.0), Inches(2.5))
+    tf = title_box.text_frame
+    tf.word_wrap = True
+
+    p0 = tf.paragraphs[0]
+    p0.text = "ATHENA AI PRESENTATION"
+    p0.font.size = Pt(13)
+    p0.font.bold = True
+    p0.font.color.rgb = RGBColor(99, 102, 241)
+
+    p1 = tf.add_paragraph()
+    p1.text = doc_title
+    p1.font.size = Pt(40)
+    p1.font.bold = True
+    p1.font.color.rgb = RGBColor(15, 23, 42)
+    p1.space_before = Pt(12)
+
+    p2 = tf.add_paragraph()
+    p2.text = "Generated with Athena AI • Executive Summary & Presentation Slides"
+    p2.font.size = Pt(16)
+    p2.font.color.rgb = RGBColor(100, 116, 139)
+    p2.space_before = Pt(16)
+
+    # 2. Content Slides
+    if not sections:
+        sections = [md_content or "Key insights and discussion summary."]
+
+    for idx, sec in enumerate(sections, 1):
+        lines = [l.strip() for l in sec.split("\n") if l.strip()]
+        if not lines:
+            continue
+
+        slide_title = f"Topic {idx}"
+        body_items: list[str] = []
+
+        for line in lines:
+            if line.startswith("#"):
+                header_text = re.sub(r"^#+\s*", "", line)
+                slide_title = clean_markdown_inline(header_text)
+            elif line.startswith("---"):
+                continue
+            else:
+                cleaned = clean_markdown_inline(line)
+                # Remove leading list markers for bullet points
+                cleaned = re.sub(r"^[\*\-•]\s*", "", cleaned)
+                cleaned = re.sub(r"^\d+\.\s*", "", cleaned)
+                if cleaned:
+                    body_items.append(cleaned)
+
+        slide = prs.slides.add_slide(blank_layout)
+
+        # Top banner
+        header_bar = slide.shapes.add_shape(
+            1, Inches(0), Inches(0), Inches(13.333), Inches(0.12)
+        )
+        header_bar.fill.solid()
+        header_bar.fill.fore_color.rgb = RGBColor(99, 102, 241)
+        header_bar.line.fill.background()
+
+        # Slide Title Box
+        title_box = slide.shapes.add_textbox(Inches(1.0), Inches(0.6), Inches(11.333), Inches(1.1))
+        tf = title_box.text_frame
+        tf.word_wrap = True
+        p_title = tf.paragraphs[0]
+        p_title.text = slide_title
+        p_title.font.size = Pt(28)
+        p_title.font.bold = True
+        p_title.font.color.rgb = RGBColor(15, 23, 42)
+
+        # Slide Number Badge
+        num_box = slide.shapes.add_textbox(Inches(11.0), Inches(0.6), Inches(1.5), Inches(0.5))
+        p_num = num_box.text_frame.paragraphs[0]
+        p_num.text = f"{idx} / {len(sections)}"
+        p_num.font.size = Pt(13)
+        p_num.font.bold = True
+        p_num.font.color.rgb = RGBColor(148, 163, 184)
+        p_num.alignment = PP_ALIGN.RIGHT
+
+        # Content Box
+        content_box = slide.shapes.add_textbox(Inches(1.0), Inches(1.8), Inches(11.333), Inches(4.8))
+        tf_body = content_box.text_frame
+        tf_body.word_wrap = True
+
+        if not body_items:
+            body_items = ["Key points and insights generated by Athena AI."]
+
+        # Cap items per slide to prevent text overflowing the bottom
+        visible_items = body_items[:8]
+        for item_idx, item in enumerate(visible_items):
+            p = tf_body.paragraphs[0] if item_idx == 0 else tf_body.add_paragraph()
+            p.text = f"•  {item}"
+            p.font.size = Pt(18 if len(visible_items) <= 5 else 16)
+            p.font.color.rgb = RGBColor(51, 65, 85)
+            p.space_before = Pt(10)
+            p.line_spacing = 1.25
+
+        # Footer
+        footer_box = slide.shapes.add_textbox(Inches(1.0), Inches(6.8), Inches(11.333), Inches(0.4))
+        p_foot = footer_box.text_frame.paragraphs[0]
+        p_foot.text = "Athena AI • Intelligent Workspace"
+        p_foot.font.size = Pt(10)
+        p_foot.font.color.rgb = RGBColor(148, 163, 184)
+
+    # Save to memory stream
+    output = io.BytesIO()
+    prs.save(output)
+    output.seek(0)
+
+    filename = f"{sanitize_filename(doc_title)}.pptx"
+    return Response(
+        content=output.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )

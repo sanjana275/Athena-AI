@@ -1,0 +1,56 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.orm import Session
+
+from .config import settings
+from .db import init_db, get_db
+from .routers import auth, chats, documents, export, profile, stream
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="Athena AI API", lifespan=lifespan)
+
+# Only used by Authlib for the short-lived Google OAuth "state" cookie.
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.secret_key,
+    session_cookie="oauth_state",
+    same_site="lax",
+    https_only=settings.cookie_secure,
+    max_age=600,
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[settings.frontend_url.rstrip("/")],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+for r in (auth.router, profile.router, chats.router, stream.router, documents.router, export.router):
+    app.include_router(r)
+
+
+# Support direct access to /api/auth/google/* (handles callbacks redirected to :8000/api/auth/google/callback)
+@app.get("/api/auth/google/callback")
+async def api_google_callback(request: Request, db: Session = Depends(get_db)):
+    return await auth.google_callback(request, db)
+
+
+@app.get("/api/auth/google/login")
+async def api_google_login(request: Request, db: Session = Depends(get_db)):
+    return await auth.google_login(request, db)
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+

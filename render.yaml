@@ -1,0 +1,29 @@
+# Render Blueprint for the API. Database: use Neon/Supabase (pgvector enabled) or Render Postgres.
+services:
+  - type: web
+    name: chatgpt-platform-api
+    runtime: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false        # e.g. https://your-app.vercel.app
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_BASE_URL
+        value: https://router.huggingface.co/v1
+      - key: LLM_MODEL
+        value: Qwen/Qwen2.5-72B-Instruct
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
