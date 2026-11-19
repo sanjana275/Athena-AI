@@ -1,4 +1,7 @@
 {
+  "apphosting": {
+    "rootDir": "frontend"
+  },
   "hosting": {
     "source": "frontend",
     "ignore": [

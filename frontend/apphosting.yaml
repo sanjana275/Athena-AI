@@ -6,3 +6,10 @@ runConfig:
 env:
   - variable: NEXT_PUBLIC_API_URL
     value: /api
+    availability:
+      - BUILD
+      - RUNTIME
+  - variable: BACKEND_URL
+    value: http://localhost:8000
+    availability:
+      - RUNTIME
