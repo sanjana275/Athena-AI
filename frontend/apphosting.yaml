@@ -10,6 +10,6 @@ env:
       - BUILD
       - RUNTIME
   - variable: BACKEND_URL
-    value: http://localhost:8000
+    value: https://athena-ai-q7cf.onrender.com
     availability:
       - RUNTIME
