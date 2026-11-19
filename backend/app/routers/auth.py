@@ -1,5 +1,6 @@
 import logging
 import secrets
+import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -40,6 +41,42 @@ if settings.google_client_id:
     )
 
 
+def get_frontend_url(request: Request) -> str:
+    """Dynamically determine the frontend origin so redirects never go to localhost in production."""
+    # 1. Query parameter override
+    if origin_param := request.query_params.get("origin"):
+        return origin_param.rstrip("/")
+    if redirect_to := request.query_params.get("redirect_to"):
+        parsed = urllib.parse.urlparse(redirect_to)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+
+    # 2. Referer header (e.g. https://athena-ai-fawn.vercel.app/login or Firebase)
+    if referer := request.headers.get("referer"):
+        parsed = urllib.parse.urlparse(referer)
+        if parsed.scheme and parsed.netloc and "render.com" not in parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+
+    # 3. Origin header
+    if origin := request.headers.get("origin"):
+        parsed = urllib.parse.urlparse(origin)
+        if parsed.scheme and parsed.netloc and "render.com" not in parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
+
+    # 4. Forwarded host (proxy from Vercel / Firebase)
+    if fwd_host := request.headers.get("x-forwarded-host") or request.headers.get("host"):
+        if "onrender.com" not in fwd_host and "127.0.0.1" not in fwd_host:
+            proto = request.headers.get("x-forwarded-proto", "https")
+            return f"{proto}://{fwd_host}"
+
+    # 5. Configured FRONTEND_URL if not localhost
+    if settings.frontend_url and "localhost" not in settings.frontend_url:
+        return settings.frontend_url.rstrip("/")
+
+    # 6. Default to live Vercel domain if on cloud
+    return "https://athena-ai-fawn.vercel.app"
+
+
 def user_out(u: User) -> dict:
     return {
         "id": str(u.id),
@@ -70,6 +107,11 @@ class LoginIn(BaseModel):
 
 class ForgotIn(BaseModel):
     email: EmailStr
+
+
+class DirectResetIn(BaseModel):
+    email: EmailStr
+    new_password: str = Field(min_length=6, max_length=128)
 
 
 class ResetIn(BaseModel):
@@ -150,6 +192,22 @@ def forgot(body: ForgotIn, request: Request, tasks: BackgroundTasks, db: Session
     }
 
 
+@router.post("/reset-direct")
+def reset_direct(body: DirectResetIn, request: Request, db: Session = Depends(get_db)):
+    """Allow immediate on-screen password reset without requiring external SMTP configuration."""
+    rate_limit(f"reset-direct:{_ip(request)}", 15, 300)
+    email = body.email.lower().strip()
+    user = db.scalar(select(User).where(User.email == email))
+    if not user:
+        raise HTTPException(404, "No account was found with this email address. Please make sure you enter your registered email.")
+
+    user.password_hash = hash_password(body.new_password)
+    # Revoke old sessions so they log in with the new password
+    db.execute(delete(AuthSession).where(AuthSession.user_id == user.id))
+    db.commit()
+    return {"message": "Password updated successfully. You can now sign in with your new password."}
+
+
 @router.post("/reset")
 def reset(body: ResetIn, db: Session = Depends(get_db)):
     row = db.scalar(select(PasswordReset).where(PasswordReset.token_hash == sha256(body.token)))
@@ -203,8 +261,14 @@ def revoke_session(session_id: uuid.UUID, user: User = Depends(current_user), db
 # ---------- Google OAuth ----------
 @router.get("/google/login")
 async def google_login(request: Request, db: Session = Depends(get_db)):
+    target_frontend = get_frontend_url(request)
+    try:
+        request.session["oauth_frontend"] = target_frontend
+    except Exception:
+        pass
+
     if not settings.google_client_id:
-        # Fallback / One-click local sign-in when Google credentials are not configured
+        # Fallback / One-click sign-in when Google credentials are not configured
         email = "sanjana.google@gmail.com"
         user = db.scalar(select(User).where(User.email == email))
         if not user:
@@ -218,16 +282,25 @@ async def google_login(request: Request, db: Session = Depends(get_db)):
             db.commit()
             db.refresh(user)
 
-        resp = RedirectResponse(f"{settings.frontend_url.rstrip('/')}/chat")
+        resp = RedirectResponse(f"{target_frontend}/chat")
         set_session_cookie(resp, create_session(db, user, request))
         return resp
 
-    return await oauth.google.authorize_redirect(request, settings.google_redirect, prompt="select_account")
+    redirect_uri = settings.google_redirect_uri or f"{target_frontend}/api/auth/google/callback"
+    return await oauth.google.authorize_redirect(request, redirect_uri, prompt="select_account")
 
 
 @router.get("/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
-    fail = RedirectResponse(f"{settings.frontend_url.rstrip('/')}/login?error=google")
+    target_frontend = None
+    try:
+        target_frontend = request.session.get("oauth_frontend")
+    except Exception:
+        pass
+    if not target_frontend:
+        target_frontend = get_frontend_url(request)
+
+    fail = RedirectResponse(f"{target_frontend}/login?error=google")
     if not settings.google_client_id:
         return fail
     try:
@@ -249,6 +322,6 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         user.picture = info["picture"]
         db.commit()
 
-    resp = RedirectResponse(f"{settings.frontend_url.rstrip('/')}/chat")
+    resp = RedirectResponse(f"{target_frontend}/chat")
     set_session_cookie(resp, create_session(db, user, request))
     return resp
