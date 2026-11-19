@@ -1,4 +1,4 @@
-import { API } from "./api";
+import { API, getAuthToken } from "./api";
 
 /**
  * Exporter utility for generating publication-ready PDF and PowerPoint (PPTX) files.
@@ -98,10 +98,14 @@ export async function exportToPpt(title: string, markdown: string) {
     .slice(0, 40) || "Athena_Presentation";
 
   try {
+    const token = getAuthToken();
     const res = await fetch(`${API}/export/pptx`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify({ title: title || "Athena Presentation", markdown }),
     });
 

@@ -128,8 +128,11 @@ def register(body: RegisterIn, request: Request, response: Response, db: Session
     user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password), provider="password")
     db.add(user)
     db.commit()
-    set_session_cookie(response, create_session(db, user, request))
-    return user_out(user)
+    session_token = create_session(db, user, request)
+    set_session_cookie(response, session_token)
+    out = user_out(user)
+    out["token"] = session_token
+    return out
 
 
 @router.post("/login")
@@ -142,8 +145,11 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
         raise HTTPException(400, "This account uses Google sign-in. Continue with Google, or reset your password to add one.")
     if not user or not verify_password(user.password_hash or "", body.password):
         raise HTTPException(401, "Incorrect email or password.")
-    set_session_cookie(response, create_session(db, user, request))
-    return user_out(user)
+    session_token = create_session(db, user, request)
+    set_session_cookie(response, session_token)
+    out = user_out(user)
+    out["token"] = session_token
+    return out
 
 
 @router.post("/logout", status_code=204)
@@ -282,11 +288,15 @@ async def google_login(request: Request, db: Session = Depends(get_db)):
             db.commit()
             db.refresh(user)
 
-        resp = RedirectResponse(f"{target_frontend}/chat")
-        set_session_cookie(resp, create_session(db, user, request))
+        session_token = create_session(db, user, request)
+        resp = RedirectResponse(f"{target_frontend}/chat?token={session_token}")
+        set_session_cookie(resp, session_token)
         return resp
 
-    redirect_uri = settings.google_redirect_uri or f"{target_frontend}/api/auth/google/callback"
+    base_api = str(request.base_url).rstrip("/")
+    if "onrender.com" in base_api and base_api.startswith("http://"):
+        base_api = "https://" + base_api[7:]
+    redirect_uri = settings.google_redirect_uri or f"{base_api}/auth/google/callback"
     return await oauth.google.authorize_redirect(request, redirect_uri, prompt="select_account")
 
 
@@ -322,6 +332,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         user.picture = info["picture"]
         db.commit()
 
-    resp = RedirectResponse(f"{target_frontend}/chat")
-    set_session_cookie(resp, create_session(db, user, request))
+    session_token = create_session(db, user, request)
+    resp = RedirectResponse(f"{target_frontend}/chat?token={session_token}")
+    set_session_cookie(resp, session_token)
     return resp

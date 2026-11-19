@@ -1,16 +1,26 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { api, API } from "@/lib/api";
+import { api, API, setAuthToken } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { User } from "@/lib/types";
 
 export function GoogleButton() {
+  const [googleUrl, setGoogleUrl] = useState("/auth/google/login");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const origin = window.location.origin;
+      const targetApi = API.startsWith("http") ? API : origin + API;
+      setGoogleUrl(`${targetApi}/auth/google/login?origin=${encodeURIComponent(origin)}`);
+    }
+  }, []);
+
   return (
     <a
-      href="/api/auth/google/login"
+      href={googleUrl}
       className="flex w-full items-center justify-center gap-3 rounded-xl border border-line bg-panel px-4 py-3 text-sm font-medium text-fg shadow-sm transition hover:bg-panel-2 hover:border-fg/20"
     >
       <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden>
@@ -60,10 +70,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     setError("");
     setBusy(true);
     try {
-      const u = await api<User>(register ? "/auth/register" : "/auth/login", {
+      const u = await api<User & { token?: string }>(register ? "/auth/register" : "/auth/login", {
         method: "POST",
         json: register ? { name, email, password } : { email, password },
       });
+      if (u.token) {
+        setAuthToken(u.token);
+      }
       setUser(u);
       router.replace("/chat");
     } catch (err) {

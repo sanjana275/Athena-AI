@@ -1,4 +1,4 @@
-import { API } from "./api";
+import { API, getAuthToken } from "./api";
 import type { Source } from "./types";
 
 export type StreamBody = {
@@ -19,10 +19,14 @@ export type StreamHandlers = {
 
 /** POST + Server-Sent Events over fetch (EventSource can't POST). */
 export async function streamChat(chatId: string, body: StreamBody, h: StreamHandlers, signal: AbortSignal) {
+  const token = getAuthToken();
   const res = await fetch(`${API}/chats/${chatId}/stream`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     body: JSON.stringify(body),
     signal,
   });

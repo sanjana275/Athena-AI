@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { api, ApiError } from "./api";
+import { api, ApiError, setAuthToken } from "./api";
 import type { Settings, User } from "./types";
 
 type Ctx = {
@@ -19,9 +19,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Check for Google OAuth callback token in URL query
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get("token");
+      if (urlToken) {
+        setAuthToken(urlToken);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("token");
+        window.history.replaceState({}, document.title, url.pathname + url.search);
+      }
+    }
+
     api<User>("/auth/me")
       .then(setUser)
-      .catch((e) => { if (!(e instanceof ApiError) || e.status !== 401) console.error(e); setUser(null); })
+      .catch((e) => {
+        if (!(e instanceof ApiError) || e.status !== 401) console.error(e);
+        setUser(null);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -30,7 +45,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [user?.settings.theme]);
 
   const logout = useCallback(async () => {
-    try { await api("/auth/logout", { method: "POST" }); } catch {}
+    try {
+      await api("/auth/logout", { method: "POST" });
+    } catch {}
+    setAuthToken(null);
     setUser(null);
   }, []);
 

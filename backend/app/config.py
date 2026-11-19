@@ -11,8 +11,8 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost:3000"
 
     cookie_name: str = "session"
-    cookie_secure: bool = False
-    cookie_samesite: str = "lax"  # use "none" (with secure) only if frontend and API are on different sites
+    cookie_secure: bool = True
+    cookie_samesite: str = "none"  # "none" with secure=True allows cross-domain frontend and API
     session_days: int = 14
 
     llm_base_url: str = "https://router.huggingface.co/v1"
