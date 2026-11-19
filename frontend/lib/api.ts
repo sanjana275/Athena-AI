@@ -1,4 +1,10 @@
-export const API = process.env.NEXT_PUBLIC_API_URL || "/api";
+export const API =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined" &&
+  (window.location.hostname.includes("firebaseapp.com") ||
+    window.location.hostname.includes("web.app"))
+    ? "https://athena-ai-q7cf.onrender.com"
+    : "/api");
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {

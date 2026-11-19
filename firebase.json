@@ -1,13 +1,16 @@
 {
-  "apphosting": {
-    "rootDir": "frontend"
-  },
   "hosting": {
-    "source": "frontend",
+    "public": "frontend/out",
     "ignore": [
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
     ]
   }
 }

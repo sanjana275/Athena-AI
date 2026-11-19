@@ -29,7 +29,14 @@ app.add_middleware(
 )
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url.rstrip("/")],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://athena-ai-fawn.vercel.app",
+        "https://athena-ai-27a17.web.app",
+        "https://athena-ai-27a17.firebaseapp.com",
+        settings.frontend_url.rstrip("/"),
+    ],
+    allow_origin_regex=r"https://.*\.web\.app|https://.*\.firebaseapp\.com|https://.*\.vercel\.app|http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
