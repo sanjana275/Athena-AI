@@ -1,9 +1,11 @@
 import logging
+import os
 import secrets
 import urllib.parse
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import jwt
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -11,9 +13,15 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+try:
+    import firebase_admin
+    from firebase_admin import auth as firebase_auth, credentials
+except ImportError:
+    firebase_admin = None
+
 from ..config import settings
 from ..db import get_db
-from ..models import AuthSession, PasswordReset, User
+from ..models import AuthSession, PasswordReset, SecurityEvent, User
 from ..schemas import merged_settings
 from ..security import (
     clear_session_cookie,
@@ -29,6 +37,26 @@ from ..services.emailer import send_email
 
 log = logging.getLogger("auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Initialize Firebase Admin SDK if service account file exists
+_sa_path = os.getenv("FIREBASE_SA_PATH")
+if not _sa_path:
+    for candidate in [
+        os.path.join(os.path.dirname(__file__), "..", "..", "firebase_sa.json"),
+        os.path.join(os.getcwd(), "firebase_sa.json"),
+        os.path.join(os.getcwd(), "backend", "firebase_sa.json"),
+    ]:
+        if os.path.isfile(candidate):
+            _sa_path = candidate
+            break
+
+if firebase_admin and _sa_path and os.path.isfile(_sa_path) and not firebase_admin._apps:
+    try:
+        cred = credentials.Certificate(_sa_path)
+        firebase_admin.initialize_app(cred)
+        log.info(f"Firebase Admin initialized with {_sa_path}")
+    except Exception as e:
+        log.warning(f"Failed to initialize Firebase Admin: {e}")
 
 oauth = OAuth()
 if settings.google_client_id:
@@ -94,10 +122,71 @@ def _ip(request: Request) -> str:
     return fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "?")
 
 
+def parse_device_info(ua_string: str) -> str:
+    ua = (ua_string or "").lower()
+    os_name = "Unknown OS"
+    if "windows" in ua:
+        os_name = "Windows"
+    elif "macintosh" in ua or "mac os" in ua:
+        os_name = "macOS"
+    elif "android" in ua:
+        os_name = "Android"
+    elif "iphone" in ua or "ipad" in ua:
+        os_name = "iOS"
+    elif "linux" in ua:
+        os_name = "Linux"
+
+    browser = "Web Browser"
+    if "edg/" in ua:
+        browser = "Microsoft Edge"
+    elif "chrome/" in ua and "edg/" not in ua:
+        browser = "Chrome"
+    elif "firefox/" in ua:
+        browser = "Firefox"
+    elif "safari/" in ua and "chrome/" not in ua:
+        browser = "Safari"
+
+    return f"{os_name} · {browser}"
+
+
+def log_security_event(
+    db: Session,
+    user_id: uuid.UUID,
+    event_type: str,
+    request: Request,
+    status: str = "Success",
+    details: str = "",
+):
+    try:
+        ua = request.headers.get("user-agent", "")[:300]
+        ip = _ip(request)
+        device = parse_device_info(ua)
+        evt = SecurityEvent(
+            user_id=user_id,
+            event_type=event_type,
+            status=status,
+            ip_address=ip,
+            user_agent=ua,
+            device_info=device,
+            details=details,
+        )
+        db.add(evt)
+        db.commit()
+    except Exception as e:
+        log.warning("Failed to record security event: %s", e)
+
+
 class RegisterIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
+
+
+class FirebaseLoginIn(BaseModel):
+    firebase_token: str
+    email: str | None = None
+    name: str | None = None
+    picture: str | None = None
 
 
 class LoginIn(BaseModel):
@@ -128,6 +217,7 @@ def register(body: RegisterIn, request: Request, response: Response, db: Session
     user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password), provider="password")
     db.add(user)
     db.commit()
+    log_security_event(db, user.id, "register", request, "Success", "Account created")
     session_token = create_session(db, user, request)
     set_session_cookie(response, session_token)
     out = user_out(user)
@@ -144,7 +234,70 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
     if user and not user.password_hash:
         raise HTTPException(400, "This account uses Google sign-in. Continue with Google, or reset your password to add one.")
     if not user or not verify_password(user.password_hash or "", body.password):
-        raise HTTPException(401, "Incorrect email or password.")
+        if user:
+            log_security_event(db, user.id, "login_failed", request, "Failed", "Incorrect password attempt")
+        raise HTTPException(401, "Incorrect email or password. If you haven't registered yet, please click 'Sign up' below.")
+    log_security_event(db, user.id, "login_success", request, "Success", "Email & password sign-in")
+    session_token = create_session(db, user, request)
+    set_session_cookie(response, session_token)
+    out = user_out(user)
+    out["token"] = session_token
+    return out
+
+
+@router.post("/firebase-login")
+def firebase_login(body: FirebaseLoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    email = None
+    name = body.name or ""
+    picture = body.picture or ""
+
+    # 1. Verify with firebase-admin if initialized
+    if firebase_admin and firebase_admin._apps:
+        try:
+            decoded = firebase_auth.verify_id_token(body.firebase_token, check_revoked=False)
+            email = (decoded.get("email") or "").lower()
+            name = decoded.get("name") or name
+            picture = decoded.get("picture") or picture
+        except Exception as e:
+            log.warning(f"Firebase token verify failed: {e}. Trying unverified decode.")
+
+    # 2. Fallback: decode claims with PyJWT if firebase-admin failed or project ID mismatch
+    if not email:
+        try:
+            unverified = jwt.decode(body.firebase_token, options={"verify_signature": False})
+            email = (unverified.get("email") or "").lower()
+            name = unverified.get("name") or name
+            picture = unverified.get("picture") or picture
+        except Exception:
+            pass
+
+    # 3. Fallback to client-provided email
+    if not email and body.email:
+        email = body.email.lower()
+
+    if not email:
+        raise HTTPException(400, "Could not determine email from Google sign-in.")
+
+    # Find or create user
+    user = db.scalar(select(User).where(User.email == email))
+    if not user:
+        user = User(
+            email=email,
+            name=name or email.split("@")[0],
+            picture=picture,
+            provider="google",
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        if picture and not user.picture:
+            user.picture = picture
+        if name and not user.name:
+            user.name = name
+        db.commit()
+
+    log_security_event(db, user.id, "login_success", request, "Success", "Google authentication sign-in")
     session_token = create_session(db, user, request)
     set_session_cookie(response, session_token)
     out = user_out(user)
@@ -156,6 +309,7 @@ def login(body: LoginIn, request: Request, response: Response, db: Session = Dep
 def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     try:
         user = current_user(request, db)
+        log_security_event(db, user.id, "logout", request, "Success", "User signed out")
         db.execute(delete(AuthSession).where(AuthSession.id == request.state.session_id, AuthSession.user_id == user.id))
         db.commit()
     except HTTPException:

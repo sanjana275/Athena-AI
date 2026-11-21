@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Paperclip, Square, X, Mic, MicOff } from "lucide-react";
+import { ArrowUp, FileText, Paperclip, Square, X, Mic, MicOff } from "lucide-react";
 import { uploadFile } from "@/lib/api";
 import type { DocumentItem } from "@/lib/types";
 import { useToast } from "./Toast";
@@ -23,6 +23,7 @@ export function Composer({ streaming, docCount, useDocs, onUseDocs, onSend, onSt
   const [text, setText] = useState("");
   const [uploading, setUploading] = useState<number | null>(null);
   const [attachedImage, setAttachedImage] = useState<{ name: string; url: string } | null>(null);
+  const [attachedDoc, setAttachedDoc] = useState<{ id: string; name: string } | null>(null);
   const [voiceMode, setVoiceMode] = useState<VoiceMode>("voice-to-text");
   const [speaking, setSpeaking] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -80,6 +81,9 @@ export function Composer({ streaming, docCount, useDocs, onUseDocs, onSend, onSt
       t = (t ? t + "\n\n" : "") + `![${attachedImage.name}](${attachedImage.url})`;
       setAttachedImage(null);
     }
+    if (attachedDoc) {
+      setAttachedDoc(null);
+    }
     if (!t || streaming) return;
     onSend(t);
     setText("");
@@ -120,15 +124,17 @@ export function Composer({ streaming, docCount, useDocs, onUseDocs, onSend, onSt
           }
         };
         reader.readAsDataURL(f);
-      }
-      try {
-        setUploading(0);
-        const doc = await uploadFile<DocumentItem>("/documents", f, setUploading);
-        toast(`${doc.filename} indexed`);
-        onUseDocs(true);
-        onUploaded();
-      } catch (e) {
-        if (!isImg) toast((e as Error).message, "error");
+      } else {
+        try {
+          setUploading(0);
+          const doc = await uploadFile<DocumentItem>("/documents", f, setUploading);
+          setAttachedDoc({ id: doc.id, name: doc.filename });
+          toast(`${doc.filename} attached & indexed`);
+          onUseDocs(true);
+          onUploaded();
+        } catch (e) {
+          toast((e as Error).message, "error");
+        }
       }
     }
     setUploading(null);
@@ -157,6 +163,27 @@ export function Composer({ streaming, docCount, useDocs, onUseDocs, onSend, onSt
             <img src={attachedImage.url} alt="Attached" className="w-10 h-10 object-cover rounded-lg border border-line" />
             <span className="truncate max-w-[150px] font-medium">{attachedImage.name}</span>
             <button type="button" onClick={() => setAttachedImage(null)} className="ml-auto text-muted hover:text-fg p-0.5 rounded-full hover:bg-raised" title="Remove image">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* Attached document preview */}
+        {attachedDoc && (
+          <div className="relative inline-flex items-center gap-2 mb-2 p-1.5 pr-3 bg-panel border border-line rounded-xl text-xs max-w-xs shadow-sm">
+            <div className="p-1.5 rounded-lg bg-accent/15 text-accent">
+              <FileText size={15} />
+            </div>
+            <div className="min-w-0">
+              <span className="truncate max-w-[140px] font-medium block">{attachedDoc.name}</span>
+              <span className="text-[10px] text-emerald-500 font-medium">Ready for AI Q&A</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAttachedDoc(null)}
+              className="ml-auto text-muted hover:text-fg p-0.5 rounded-full hover:bg-raised"
+              title="Remove attachment"
+            >
               <X size={14} />
             </button>
           </div>

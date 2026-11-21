@@ -4,55 +4,48 @@ import { ChevronDown, Sparkles, Zap, Brain } from "lucide-react";
 
 export const GROQ_MODELS = [
   {
-    id: "qwen/qwen3.8-27b",
-    label: "Qwen 3.8 27B",
-    badge: "Default",
+    id: "openai/gpt-4o-mini",
+    label: "GPT-4o mini",
+    badge: "Smart & Fast",
     icon: <Sparkles size={14} />,
-    desc: "Balanced speed & quality",
+    desc: "Everyday reasoning, creative writing & problem solving",
   },
   {
-    id: "llama-3.3-70b-specdec",
-    label: "Llama 3.3 70B Spec",
+    id: "openai/gpt-oss-120b",
+    label: "GPT-OSS 120B",
+    badge: "Flagship",
+    icon: <Sparkles size={14} />,
+    desc: "Flagship ChatGPT-level 120B model",
+  },
+  {
+    id: "openai/gpt-oss-20b",
+    label: "GPT-OSS 20B",
     badge: "Fast",
     icon: <Zap size={14} />,
-    desc: "High speed, great for chat",
+    desc: "Ultra-fast reasoning model",
   },
   {
-    id: "llama-3.1-8b-instant",
-    label: "Llama 3.1 8B Instant",
-    badge: "Fastest",
-    icon: <Zap size={14} />,
-    desc: "Ultra-low latency",
-  },
-  {
-    id: "llama-3.2-11b-vision-preview",
-    label: "Llama 3.2 11B Vision",
-    badge: "Vision",
+    id: "qwen/qwen3.8-27b",
+    label: "Qwen 2.5",
+    badge: "High Precision",
     icon: <Brain size={14} />,
-    desc: "Image understanding",
+    desc: "Coding, math & deep reasoning",
   },
   {
-    id: "mixtral-8x7b-32768",
-    label: "Mixtral 8x7B",
-    badge: "MoE",
-    icon: <Brain size={14} />,
-    desc: "Mixture of experts",
-  },
-  {
-    id: "gemma2-9b-it",
-    label: "Gemma 2 9B",
+    id: "google/gemma-4-31b-it:free",
+    label: "Gemma 4 31B",
     badge: "Google",
     icon: <Sparkles size={14} />,
-    desc: "Google's open model",
+    desc: "Google open weights model",
   },
 ];
 
 const BADGE_COLOR: Record<string, string> = {
+  "Smart & Fast": "bg-emerald-500/15 text-emerald-500",
+  Flagship: "bg-accent/15 text-accent",
   Default: "bg-accent/15 text-accent",
-  Fast: "bg-emerald-500/15 text-emerald-500",
-  Fastest: "bg-green-500/15 text-green-500",
-  Vision: "bg-purple-500/15 text-purple-500",
-  MoE: "bg-orange-500/15 text-orange-500",
+  Fast: "bg-cyan-500/15 text-cyan-500",
+  "High Precision": "bg-purple-500/15 text-purple-500",
   Google: "bg-blue-500/15 text-blue-500",
 };
 
@@ -99,7 +92,11 @@ export function ModelSelector({ value, onChange }: Props) {
                 type="button"
                 role="option"
                 aria-selected={value === m.id}
-                onClick={() => { onChange(m.id); setOpen(false); }}
+                onClick={() => {
+                  onChange(m.id);
+                  try { localStorage.setItem("athena_model", m.id); } catch {}
+                  setOpen(false);
+                }}
                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-raised transition-colors ${
                   value === m.id ? "bg-accent/10" : ""
                 }`}

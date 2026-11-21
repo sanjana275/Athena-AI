@@ -13,8 +13,15 @@ from ..security import current_user
 router = APIRouter(tags=["chats"])
 
 
-def chat_out(c: Chat) -> dict:
-    return {"id": str(c.id), "title": c.title, "created_at": c.created_at, "updated_at": c.updated_at}
+def chat_out(c: Chat, pinned_ids: set[str] | None = None) -> dict:
+    is_pinned = str(c.id) in pinned_ids if pinned_ids is not None else False
+    return {
+        "id": str(c.id),
+        "title": c.title,
+        "created_at": c.created_at,
+        "updated_at": c.updated_at,
+        "pinned": is_pinned,
+    }
 
 
 def message_out(m: Message) -> dict:
@@ -47,6 +54,7 @@ class FeedbackIn(BaseModel):
 def list_chats(q: str | None = None, archived: bool = False, user: User = Depends(current_user), db: Session = Depends(get_db)):
     stmt = select(Chat).where(Chat.user_id == user.id)
     archived_ids = set((user.settings or {}).get("archived_chats", []))
+    pinned_ids = set((user.settings or {}).get("pinned_chats", []))
 
     if q and q.strip():
         like = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
@@ -57,8 +65,8 @@ def list_chats(q: str | None = None, archived: bool = False, user: User = Depend
     rows = db.scalars(stmt.order_by(Chat.updated_at.desc()).limit(200)).all()
 
     if archived:
-        return [chat_out(c) for c in rows if str(c.id) in archived_ids]
-    return [chat_out(c) for c in rows if str(c.id) not in archived_ids]
+        return [chat_out(c, pinned_ids) for c in rows if str(c.id) in archived_ids]
+    return [chat_out(c, pinned_ids) for c in rows if str(c.id) not in archived_ids]
 
 
 @router.post("/chats", status_code=201)
@@ -66,7 +74,8 @@ def create_chat(body: ChatIn | None = None, user: User = Depends(current_user), 
     chat = Chat(user_id=user.id, title=(body.title if body and body.title else "New chat"))
     db.add(chat)
     db.commit()
-    return chat_out(chat)
+    pinned_ids = set((user.settings or {}).get("pinned_chats", []))
+    return chat_out(chat, pinned_ids)
 
 
 @router.delete("/chats", status_code=204)
@@ -78,7 +87,8 @@ def delete_all_chats(user: User = Depends(current_user), db: Session = Depends(g
 @router.get("/chats/{chat_id}")
 def read_chat(chat_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
     chat = get_chat(db, chat_id, user)
-    return {"chat": chat_out(chat), "messages": [message_out(m) for m in chat.messages]}
+    pinned_ids = set((user.settings or {}).get("pinned_chats", []))
+    return {"chat": chat_out(chat, pinned_ids), "messages": [message_out(m) for m in chat.messages]}
 
 
 @router.patch("/chats/{chat_id}")
@@ -87,13 +97,39 @@ def rename_chat(chat_id: uuid.UUID, body: ChatIn, user: User = Depends(current_u
     if body.title and body.title.strip():
         chat.title = body.title.strip()[:200]
     db.commit()
-    return chat_out(chat)
+    pinned_ids = set((user.settings or {}).get("pinned_chats", []))
+    return chat_out(chat, pinned_ids)
 
 
 @router.delete("/chats/{chat_id}", status_code=204)
 def delete_chat(chat_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
     db.delete(get_chat(db, chat_id, user))
     db.commit()
+
+
+@router.post("/chats/{chat_id}/pin")
+def pin_chat(chat_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    chat = get_chat(db, chat_id, user)
+    merged = dict(user.settings or {})
+    pinned = list(merged.get("pinned_chats", []))
+    sid = str(chat.id)
+    if sid not in pinned:
+        pinned.append(sid)
+    merged["pinned_chats"] = pinned
+    user.settings = merged
+    db.commit()
+    return {"status": "pinned", "id": sid, "pinned_chats": pinned}
+
+
+@router.post("/chats/{chat_id}/unpin")
+def unpin_chat(chat_id: uuid.UUID, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    chat = get_chat(db, chat_id, user)
+    merged = dict(user.settings or {})
+    pinned = [x for x in merged.get("pinned_chats", []) if x != str(chat.id)]
+    merged["pinned_chats"] = pinned
+    user.settings = merged
+    db.commit()
+    return {"status": "unpinned", "id": str(chat.id), "pinned_chats": pinned}
 
 
 @router.post("/chats/{chat_id}/archive")

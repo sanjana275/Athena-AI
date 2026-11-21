@@ -19,6 +19,7 @@ from ..schemas import merged_settings
 from ..security import current_user
 from ..services import llm
 from ..services.rag import retrieve
+from ..services.search import is_live_search_query, perform_search
 from .chats import get_chat
 
 log = logging.getLogger("stream")
@@ -151,10 +152,9 @@ async def stream_reply(
     if not history or history[-1][0] != "user":
         raise HTTPException(400, "Conversation must end with a user message")
 
-    if chat.title == "New chat" and len(history) >= 1:
-        first = next((c for r, c in history if r == "user"), "")
-        clean_first, _ = extract_embedded_image(first)
-        chat.title = await llm.generate_chat_title(clean_first or first)
+    clean_history = [(r, extract_embedded_image(c)[0] or c) for r, c in history]
+    if chat.title == "New chat" or (len(history) in (2, 3, 4) and ("new chat" in chat.title.lower() or len(chat.title.split()) <= 2)):
+        chat.title = await llm.generate_chat_title(clean_history)
     chat.updated_at = now()
     db.commit()
 
@@ -175,7 +175,16 @@ async def stream_reply(
             query = history[-3][1] + "\n" + query
         sources = await run_in_threadpool(retrieve, db, user_id, query, 5)
 
-    messages = llm.build_messages(cfg["system_prompt"], history, sources)
+    # Real-Time Search for current events / version info
+    search_context = ""
+    last_prompt = history[-1][1] if history else ""
+    if is_live_search_query(last_prompt):
+        try:
+            search_context = await perform_search(last_prompt)
+        except Exception as e:
+            log.warning("Live search failed: %s", e)
+
+    messages = llm.build_messages(cfg["system_prompt"], history, sources, search_context=search_context)
 
     async def gen():
         parts: list[str] = []
@@ -225,21 +234,21 @@ async def stream_reply(
             # ── Image Generation Intent ───────────────────────────────────────
             is_img, img_subj = detect_image_request(last_prompt)
             if is_img:
-                yield sse({"type": "token", "text": "Creating your high-resolution image...\n\n"})
-                parts.append("Creating your high-resolution image...\n\n")
-                await asyncio.sleep(0.3)
+                yield sse({"type": "token", "text": "🎨 Generating your image with verified visual accuracy...\n\n"})
+                parts.append("🎨 Generating your image with verified visual accuracy...\n\n")
 
-                encoded = urllib.parse.quote(img_subj)
-                seed = hashlib.md5(img_subj.encode()).hexdigest()[:6]
-                img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&enhance=true&seed={seed}"
+                # Enrich prompt for accurate logos, subjects, and styles
+                refined_prompt = await llm.generate_image_prompt(img_subj)
+
+                encoded = urllib.parse.quote(refined_prompt)
+                seed = hashlib.md5(f"{img_subj}-{chat.id}-{len(history)}".encode()).hexdigest()[:8]
+                img_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true&seed={seed}"
                 response_md = (
                     f"Here is the generated image for **\"{img_subj}\"**:\n\n"
                     f"![{img_subj}]({img_url})\n\n"
-                    f"### Image Details & Explanation\n"
-                    f"- **Subject**: {img_subj}\n"
-                    f"- **Engine**: Cloud Diffusion / FLUX.1 (HD 1024×1024)\n"
-                    f"- **Visual Elements**: Rendered with dynamic focal composition, lifelike color depth, and clean contrast.\n\n"
-                    f"Feel free to ask for variations, style changes, or another image creation!"
+                    f"**Subject**: {img_subj}\n\n"
+                    f"[⬇️ Download Image]({img_url}) &nbsp;•&nbsp; [🔄 Retry Generation](action:retry-image)\n\n"
+                    f"Feel free to ask for adjustments, different styles, or a new subject!"
                 )
                 for chunk in response_md.split("\n"):
                     parts.append(chunk + "\n")

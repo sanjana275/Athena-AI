@@ -31,6 +31,21 @@ class User(Base):
     chats = relationship("Chat", cascade="all, delete-orphan", passive_deletes=True)
     documents = relationship("Document", cascade="all, delete-orphan", passive_deletes=True)
     sessions = relationship("AuthSession", cascade="all, delete-orphan", passive_deletes=True)
+    security_events = relationship("SecurityEvent", cascade="all, delete-orphan", passive_deletes=True)
+
+
+class SecurityEvent(Base):
+    __tablename__ = "security_events"
+
+    id: Mapped[uuid.UUID] = uid_col(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = uid_col(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(50), index=True)  # login_success, login_failed, logout, password_change
+    status: Mapped[str] = mapped_column(String(20), default="Success")  # Success | Failed
+    ip_address: Mapped[str] = mapped_column(String(45), default="")
+    user_agent: Mapped[str] = mapped_column(String(300), default="")
+    device_info: Mapped[str] = mapped_column(String(120), default="")  # e.g. "Windows 11 · Chrome"
+    details: Mapped[str] = mapped_column(String(255), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, index=True)
 
 
 class AuthSession(Base):

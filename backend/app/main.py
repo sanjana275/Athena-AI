@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.orm import Session
@@ -57,6 +57,11 @@ async def api_google_callback(request: Request, db: Session = Depends(get_db)):
 @app.get("/api/auth/google/login")
 async def api_google_login(request: Request, db: Session = Depends(get_db)):
     return await auth.google_login(request, db)
+
+
+@app.post("/api/auth/firebase-login")
+def api_firebase_login(body: auth.FirebaseLoginIn, request: Request, response: Response, db: Session = Depends(get_db)):
+    return auth.firebase_login(body, request, response, db)
 
 
 @app.get("/health")

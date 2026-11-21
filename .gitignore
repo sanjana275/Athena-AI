@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# Secrets & Service Accounts
+*firebase_sa.json
+*service_account*.json
+*.pem
+*.key
+
 # Python
 __pycache__/
 *.py[cod]

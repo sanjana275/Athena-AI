@@ -1,11 +1,15 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  AlertCircle,
   Archive,
   ArrowLeft,
+  Calendar,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CreditCard,
   Eye,
   EyeOff,
@@ -16,9 +20,12 @@ import {
   Moon,
   Palette,
   Pencil,
+  RefreshCw,
   RotateCcw,
   Search,
+  ShieldCheck,
   Sliders,
+  Smartphone,
   Sparkles,
   Sun,
   Trash2,
@@ -44,6 +51,16 @@ type SettingsTab =
   | "security"
   | "general";
 
+interface SecurityEventItem {
+  id: string;
+  event_type: string;
+  status: string;
+  device_info: string;
+  ip_address: string;
+  details: string;
+  created_at: string;
+}
+
 export default function SettingsPage() {
   const { user, updateProfile, setUser, logout } = useAuth();
   const { refresh } = useChats();
@@ -54,15 +71,37 @@ export default function SettingsPage() {
   const [searchFilter, setSearchFilter] = useState("");
 
   // Profile fields
+  const initialFirstName =
+    user?.settings?.first_name ||
+    (user?.name ? user.name.split(" ")[0] : "");
+  const initialLastName =
+    user?.settings?.last_name ||
+    (user?.name && user.name.split(" ").length > 1
+      ? user.name.split(" ").slice(1).join(" ")
+      : "");
+
+  const [firstName, setFirstName] = useState(initialFirstName);
+  const [lastName, setLastName] = useState(initialLastName);
   const [name, setName] = useState(user?.name || "");
   const [email, setEmail] = useState(user?.email || "");
   const [username, setUsername] = useState(
     user?.settings?.username || (user?.email ? `@${user.email.split("@")[0]}` : "@user")
   );
+  const [picture, setPicture] = useState(user?.picture || "");
   const [age, setAge] = useState(user?.settings?.age || "18 or older");
   const [builderName, setBuilderName] = useState(
     user?.settings?.builder_name || user?.name || ""
   );
+  const [savingAccount, setSavingAccount] = useState(false);
+
+  // Security Events Audit State
+  const [securityEvents, setSecurityEvents] = useState<SecurityEventItem[]>([]);
+  const [secLoading, setSecLoading] = useState(false);
+  const [secSearch, setSecSearch] = useState("");
+  const [secEventType, setSecEventType] = useState("all");
+  const [secPage, setSecPage] = useState(1);
+  const [secTotalPages, setSecTotalPages] = useState(1);
+  const [secTotal, setSecTotal] = useState(0);
 
   // Settings & Assistant config
   const [s, setS] = useState<Settings>(user!.settings);
@@ -192,6 +231,101 @@ export default function SettingsPage() {
       toast((e as Error).message, "error");
     }
   }
+
+  const loadSecurityEvents = useCallback(
+    async (page = secPage, search = secSearch, type = secEventType) => {
+      setSecLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: String(page),
+          page_size: "8",
+        });
+        if (search.trim()) params.set("search", search.trim());
+        if (type && type !== "all") params.set("event_type", type);
+        const data = await api<{
+          items: SecurityEventItem[];
+          total: number;
+          page: number;
+          page_size: number;
+          total_pages: number;
+        }>(`/profile/security-events?${params.toString()}`);
+        setSecurityEvents(data.items || []);
+        setSecTotal(data.total || 0);
+        setSecTotalPages(data.total_pages || 1);
+      } catch {
+        setSecurityEvents([]);
+      } finally {
+        setSecLoading(false);
+      }
+    },
+    [secPage, secSearch, secEventType]
+  );
+
+  useEffect(() => {
+    if (activeTab === "security") {
+      loadSecurityEvents(secPage, secSearch, secEventType);
+    }
+  }, [activeTab, secPage, secEventType, loadSecurityEvents]);
+
+  const handleSaveAccount = async () => {
+    const full = name.trim() || `${firstName.trim()} ${lastName.trim()}`.trim();
+    if (!full) {
+      toast("Please enter your name", "error");
+      return;
+    }
+    if (!email.trim() || !email.includes("@")) {
+      toast("Please enter a valid email address", "error");
+      return;
+    }
+    const cleanUsername = username.trim().startsWith("@") ? username.trim() : `@${username.trim()}`;
+
+    setSavingAccount(true);
+    try {
+      await updateProfile({
+        name: full,
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        email: email.trim().toLowerCase(),
+        username: cleanUsername,
+        picture: picture.trim() || null,
+        builder_name: builderName.trim() || full,
+        age,
+        settings: {
+          ...s,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          username: cleanUsername,
+          builder_name: builderName.trim() || full,
+          age,
+        },
+      });
+      setName(full);
+      setUsername(cleanUsername);
+      toast("Account details updated and saved successfully!");
+    } catch (e) {
+      toast((e as Error).message, "error");
+    } finally {
+      setSavingAccount(false);
+    }
+  };
+
+  const handleCancelAccount = () => {
+    const fn = user?.settings?.first_name || (user?.name ? user.name.split(" ")[0] : "");
+    const ln =
+      user?.settings?.last_name ||
+      (user?.name && user.name.split(" ").length > 1
+        ? user.name.split(" ").slice(1).join(" ")
+        : "");
+    setFirstName(fn);
+    setLastName(ln);
+    setName(user?.name || "");
+    setEmail(user?.email || "");
+    setUsername(user?.settings?.username || (user?.email ? `@${user.email.split("@")[0]}` : "@user"));
+    setPicture(user?.picture || "");
+    setAge(user?.settings?.age || "18 or older");
+    setBuilderName(user?.settings?.builder_name || user?.name || "");
+    toast("Changes reverted to current account profile");
+  };
 
   const handleSaveField = async () => {
     if (editingField === "name") {
@@ -430,192 +564,236 @@ export default function SettingsPage() {
       <main className="flex-1 overflow-y-auto p-8 lg:p-12">
         <div className="mx-auto max-w-2xl">
           {/* ════════════════════════════════════════════════════════════
-              1. ACCOUNT SECTION (Image 1 replica)
+              1. ACCOUNT SECTION
               ════════════════════════════════════════════════════════════ */}
           {activeTab === "account" && (
             <div className="space-y-8 animate-fadeIn">
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">Account</h1>
-                <p className="text-sm text-muted mt-1">Review your account details</p>
+                <p className="text-sm text-muted mt-1">Review and manage your profile details</p>
               </div>
 
-              <div>
-                <h2 className="text-sm font-semibold text-fg mb-4">Details</h2>
-                <div className="divide-y divide-line rounded-2xl border border-line bg-panel">
-                  {/* Name */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">Name</p>
-                      <p className="text-xs text-muted">
-                        The name associated with your account
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-fg/90">{name || "Not set"}</span>
-                      <button
-                        onClick={() => {
-                          setEditingField("name");
-                          setEditValue(name);
-                        }}
-                        className="rounded-lg p-1.5 text-muted hover:bg-raised hover:text-fg transition"
-                        title="Edit name"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Username */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">Username</p>
-                      <p className="text-xs text-muted">
-                        Your unique handle on Athena AI
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-fg/90">{username}</span>
-                      <button
-                        onClick={() => {
-                          setEditingField("username");
-                          setEditValue(username);
-                        }}
-                        className="rounded-lg p-1.5 text-muted hover:bg-raised hover:text-fg transition"
-                        title="Edit username"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Email */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">Email</p>
-                      <p className="text-xs text-muted">
-                        The email address linked to your account
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-fg/90">{email}</span>
-                      <button
-                        onClick={() => {
-                          setEditingField("email");
-                          setEditValue(email);
-                        }}
-                        className="rounded-lg p-1.5 text-muted hover:bg-raised hover:text-fg transition"
-                        title="Edit email"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Plan */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">Plan</p>
-                      <p className="text-xs text-muted">
-                        The plan for your current workspace
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-sm font-semibold text-accent">Free</span>
-                    </div>
-                  </div>
-
-                  {/* Age */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">Age</p>
-                      <p className="text-xs text-muted">
-                        The age range used to apply account protections
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-sm text-fg/90">{age}</span>
-                    </div>
-                  </div>
-
-                  {/* GPT builder profile */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">GPT builder profile</p>
-                      <p className="text-xs text-muted">
-                        The display name on your GPT builder profile
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-fg/90">
-                        {builderName || name || "User"}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setEditingField("builder");
-                          setEditValue(builderName || name);
-                        }}
-                        className="rounded-lg p-1.5 text-muted hover:bg-raised hover:text-fg transition"
-                        title="Edit builder profile"
-                      >
-                        <Pencil size={15} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Password & Security Quick Action */}
-                  <div className="flex items-center justify-between p-4">
-                    <div>
-                      <p className="text-sm font-medium">Password</p>
-                      <p className="text-xs text-muted">
-                        Change or update your account password
-                      </p>
-                    </div>
-                    <div>
-                      <button
-                        onClick={() => {
-                          setEditingField("password");
-                          setNewPassword("");
-                          setConfirmPassword("");
-                        }}
-                        className="btn-outline !py-1 !px-3 text-xs"
-                      >
-                        Change password
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Delete account */}
-                  <div className="flex items-center justify-between p-4 bg-danger/5">
-                    <div>
-                      <p className="text-sm font-medium text-danger">Delete account</p>
-                      <p className="text-xs text-muted">
-                        Permanently delete your account and its data
-                      </p>
-                    </div>
-                    <div>
-                      <button
-                        onClick={async () => {
-                          if (
-                            !confirm(
-                              "Are you sure you want to permanently delete your account, chats, and documents? This cannot be undone."
-                            )
-                          )
-                            return;
-                          try {
-                            await api("/profile", { method: "DELETE" });
-                            setUser(null);
-                            router.replace("/login");
-                          } catch (e) {
-                            toast((e as Error).message, "error");
-                          }
-                        }}
-                        className="rounded-xl bg-rose-500/15 border border-rose-500/30 px-3.5 py-1.5 text-xs font-semibold text-rose-500 hover:bg-rose-500/25 transition"
-                      >
-                        Delete
-                      </button>
-                    </div>
+              {/* Profile Avatar & Identity Card */}
+              <div className="rounded-2xl border border-line bg-panel p-6">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+                  <Avatar name={name || user?.name || "User"} picture={picture || user?.picture} size={64} />
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <h3 className="text-base font-bold text-fg truncate">
+                      {name || user?.name || "Athena AI User"}
+                    </h3>
+                    <p className="text-xs text-muted truncate">{email || user?.email}</p>
+                    <p className="text-[11px] text-accent font-semibold mt-0.5">
+                      {username} &bull; Personal Workspace
+                    </p>
                   </div>
                 </div>
+
+                {/* Profile Picture URL Input */}
+                <div className="mt-5 pt-4 border-t border-line">
+                  <label className="text-xs font-medium text-muted block mb-1.5">
+                    Profile Picture URL (optional)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="url"
+                      value={picture}
+                      onChange={(e) => setPicture(e.target.value)}
+                      placeholder="https://example.com/avatar.png"
+                      className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+                    />
+                    {picture && (
+                      <button
+                        type="button"
+                        onClick={() => setPicture("")}
+                        className="btn-outline !py-2 !px-3 text-xs shrink-0"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Account Details Form */}
+              <div className="rounded-2xl border border-line bg-panel p-6 space-y-6">
+                <div className="flex items-center justify-between border-b border-line pb-3">
+                  <h2 className="text-sm font-semibold text-fg">Account Information</h2>
+                  <span className="text-[11px] text-muted">All changes persist in database</span>
+                </div>
+
+                <div className="space-y-4">
+                  {/* First Name & Last Name */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-muted block mb-1">First Name</label>
+                      <input
+                        type="text"
+                        value={firstName}
+                        onChange={(e) => {
+                          setFirstName(e.target.value);
+                          if (!name || name === `${initialFirstName} ${initialLastName}`.trim()) {
+                            setName(`${e.target.value} ${lastName}`.trim());
+                          }
+                        }}
+                        placeholder="First name"
+                        className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted block mb-1">Last Name</label>
+                      <input
+                        type="text"
+                        value={lastName}
+                        onChange={(e) => {
+                          setLastName(e.target.value);
+                          if (!name || name === `${initialFirstName} ${initialLastName}`.trim()) {
+                            setName(`${firstName} ${e.target.value}`.trim());
+                          }
+                        }}
+                        placeholder="Last name"
+                        className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Full Name */}
+                  <div>
+                    <label className="text-xs font-medium text-muted block mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your full name"
+                      className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                    />
+                  </div>
+
+                  {/* Username & Email */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-muted block mb-1">Username</label>
+                      <input
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        placeholder="@username"
+                        className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted block mb-1">Email Address</label>
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="user@example.com"
+                        className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Age & GPT Builder Profile */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-xs font-medium text-muted block mb-1">Age Range</label>
+                      <select
+                        value={age}
+                        onChange={(e) => setAge(e.target.value)}
+                        className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                      >
+                        <option>18 or older</option>
+                        <option>13 to 17</option>
+                        <option>Prefer not to say</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-muted block mb-1">GPT Builder Profile Name</label>
+                      <input
+                        type="text"
+                        value={builderName}
+                        onChange={(e) => setBuilderName(e.target.value)}
+                        placeholder="Builder display name"
+                        className="w-full rounded-xl border border-line bg-panel-2 px-3 py-2 text-xs text-fg focus:border-accent focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Plan Information */}
+                  <div className="flex items-center justify-between p-3.5 rounded-xl bg-panel-2 border border-line">
+                    <div>
+                      <p className="text-xs font-semibold text-fg">Current Plan</p>
+                      <p className="text-[11px] text-muted">Athena AI Personal Workspace &bull; Unlimited access</p>
+                    </div>
+                    <span className="rounded-full bg-accent/20 px-2.5 py-1 text-xs font-semibold text-accent">
+                      Free Plan
+                    </span>
+                  </div>
+                </div>
+
+                {/* Form Controls: Save Changes & Cancel */}
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-line">
+                  <button
+                    type="button"
+                    onClick={handleCancelAccount}
+                    className="flex items-center gap-1.5 rounded-xl border border-line bg-panel px-4 py-2 text-xs font-semibold hover:bg-raised transition text-fg"
+                  >
+                    <RotateCcw size={14} />
+                    <span>Cancel</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={savingAccount}
+                    onClick={handleSaveAccount}
+                    className="flex items-center gap-1.5 rounded-xl bg-accent px-5 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 transition disabled:opacity-50"
+                  >
+                    <Check size={14} />
+                    <span>{savingAccount ? "Saving changes..." : "Save Changes"}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Password & Security Quick Actions */}
+              <div className="rounded-2xl border border-line bg-panel p-6 space-y-4">
+                <h2 className="text-sm font-semibold text-fg">Password & Access</h2>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-medium">Account password</p>
+                    <p className="text-[11px] text-muted">Update the password used to sign in to Athena AI</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setEditingField("password");
+                      setNewPassword("");
+                      setConfirmPassword("");
+                    }}
+                    className="btn-outline !py-1.5 !px-3 text-xs"
+                  >
+                    Change password
+                  </button>
+                </div>
+              </div>
+
+              {/* Danger Zone */}
+              <div className="rounded-2xl border border-danger/30 bg-danger/5 p-6 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-danger">Delete account</p>
+                  <p className="text-xs text-muted">Permanently delete your account, chats, and uploaded files</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    if (!confirm("Are you sure you want to permanently delete your account, chats, and documents? This cannot be undone.")) return;
+                    try {
+                      await api("/profile", { method: "DELETE" });
+                      setUser(null);
+                      router.replace("/login");
+                    } catch (e) {
+                      toast((e as Error).message, "error");
+                    }
+                  }}
+                  className="rounded-xl bg-rose-500/15 border border-rose-500/30 px-3.5 py-1.5 text-xs font-semibold text-rose-500 hover:bg-rose-500/25 transition"
+                >
+                  Delete account
+                </button>
               </div>
             </div>
           )}
@@ -1327,7 +1505,16 @@ export default function SettingsPage() {
 
               {/* Active Sessions */}
               <div className="rounded-2xl border border-line bg-panel p-6 space-y-4">
-                <h2 className="text-sm font-semibold">Active sessions</h2>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-sm font-semibold">Active sessions</h2>
+                  <button
+                    onClick={loadSessions}
+                    className="flex items-center gap-1 text-xs text-muted hover:text-fg"
+                  >
+                    <RotateCcw size={12} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
                 <ul className="divide-y divide-line text-sm">
                   {sessions.map((x) => (
                     <li key={x.id} className="flex items-center gap-3 py-3">
@@ -1359,6 +1546,164 @@ export default function SettingsPage() {
                     </li>
                   ))}
                 </ul>
+              </div>
+
+              {/* Real Security & Login Audit Activity */}
+              <div className="rounded-2xl border border-line bg-panel p-6 space-y-5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-4">
+                  <div>
+                    <h2 className="text-sm font-semibold flex items-center gap-2">
+                      <ShieldCheck size={16} className="text-accent" />
+                      <span>Security Activity &amp; Login History</span>
+                    </h2>
+                    <p className="text-xs text-muted mt-0.5">
+                      Verified audit logs for logins, logouts, and password modifications
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => loadSecurityEvents(1)}
+                    disabled={secLoading}
+                    className="flex items-center gap-1.5 rounded-xl border border-line bg-panel-2 px-3 py-1.5 text-xs font-medium hover:bg-raised transition text-fg self-start sm:self-auto"
+                  >
+                    <RefreshCw size={12} className={secLoading ? "animate-spin" : ""} />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+
+                {/* Filters */}
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <div className="relative flex-1 w-full">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+                    <input
+                      type="text"
+                      placeholder="Search device, IP, or details..."
+                      value={secSearch}
+                      onChange={(e) => setSecSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") loadSecurityEvents(1, secSearch, secEventType);
+                      }}
+                      className="w-full rounded-xl border border-line bg-panel-2 py-1.5 pl-8 pr-3 text-xs text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+                    />
+                  </div>
+                  <select
+                    value={secEventType}
+                    onChange={(e) => {
+                      setSecEventType(e.target.value);
+                      setSecPage(1);
+                      loadSecurityEvents(1, secSearch, e.target.value);
+                    }}
+                    className="rounded-xl border border-line bg-panel-2 py-1.5 px-3 text-xs text-fg focus:border-accent focus:outline-none w-full sm:w-auto"
+                  >
+                    <option value="all">All Events</option>
+                    <option value="login_success">Successful Sign-ins</option>
+                    <option value="login_failed">Failed Sign-ins</option>
+                    <option value="logout">Sign-outs</option>
+                    <option value="password_change">Password Updates</option>
+                    <option value="register">Account Created</option>
+                  </select>
+                </div>
+
+                {/* Events List / Table */}
+                <div className="rounded-xl border border-line overflow-hidden">
+                  {secLoading ? (
+                    <div className="p-8 text-center text-xs text-muted">Loading audit logs...</div>
+                  ) : securityEvents.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-muted space-y-1">
+                      <p className="font-semibold text-fg">No security events found</p>
+                      <p>Events like sign-ins and security actions will be recorded here.</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-line text-xs">
+                      {securityEvents.map((evt) => {
+                        const isSuccess = evt.status === "Success";
+                        const isFail = evt.status === "Failed" || evt.event_type === "login_failed";
+                        let badgeBg = "bg-accent/15 text-accent";
+                        let label = "Activity";
+
+                        if (evt.event_type === "login_success") {
+                          badgeBg = "bg-emerald-500/15 text-emerald-500";
+                          label = "Successful Sign-in";
+                        } else if (evt.event_type === "login_failed") {
+                          badgeBg = "bg-rose-500/15 text-rose-500";
+                          label = "Failed Sign-in";
+                        } else if (evt.event_type === "logout") {
+                          badgeBg = "bg-slate-500/15 text-slate-400";
+                          label = "Sign-out";
+                        } else if (evt.event_type === "password_change") {
+                          badgeBg = "bg-blue-500/15 text-blue-500";
+                          label = "Password Changed";
+                        } else if (evt.event_type === "register") {
+                          badgeBg = "bg-purple-500/15 text-purple-500";
+                          label = "Account Registered";
+                        }
+
+                        return (
+                          <div key={evt.id} className="p-3.5 hover:bg-raised/40 transition flex items-center justify-between gap-3">
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${badgeBg}`}>
+                                  {label}
+                                </span>
+                                <span className="font-medium text-fg truncate">{evt.device_info}</span>
+                              </div>
+                              <p className="text-[11px] text-muted truncate">
+                                IP: {evt.ip_address} &bull; {evt.details || "Verified activity"}
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-[11px] text-muted">
+                                {new Date(evt.created_at).toLocaleDateString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </p>
+                              <p className="text-[10px] text-muted">
+                                {new Date(evt.created_at).toLocaleTimeString(undefined, {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Pagination */}
+                {secTotalPages > 1 && (
+                  <div className="flex items-center justify-between text-xs pt-2">
+                    <span className="text-muted text-[11px]">
+                      Showing page {secPage} of {secTotalPages} ({secTotal} total events)
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        disabled={secPage <= 1}
+                        onClick={() => {
+                          const p = secPage - 1;
+                          setSecPage(p);
+                          loadSecurityEvents(p);
+                        }}
+                        className="btn-outline !py-1 !px-2.5 text-xs disabled:opacity-40"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        disabled={secPage >= secTotalPages}
+                        onClick={() => {
+                          const p = secPage + 1;
+                          setSecPage(p);
+                          loadSecurityEvents(p);
+                        }}
+                        className="btn-outline !py-1 !px-2.5 text-xs disabled:opacity-40"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

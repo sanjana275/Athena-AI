@@ -38,7 +38,15 @@ export default function ChatView({ chatId }: { chatId?: string }) {
   const [streaming, setStreaming] = useState(false);
   const [docCount, setDocCount] = useState(0);
   const [useDocs, setUseDocs] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(GROQ_MODELS[0].id);
+  const [selectedModel, setSelectedModel] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("athena_model");
+      if (saved && GROQ_MODELS.some((m) => m.id === saved)) return saved;
+    }
+    return GROQ_MODELS[0].id;
+  });
+  const selectedModelRef = useRef(selectedModel);
+  selectedModelRef.current = selectedModel;
   const [lastAiReply, setLastAiReply] = useState<string | undefined>();
 
   const abortRef = useRef<AbortController | null>(null);
@@ -73,7 +81,7 @@ export default function ChatView({ chatId }: { chatId?: string }) {
     let failed = false;
     let accumulated = "";
     try {
-      await streamChat(id, { ...body, use_documents: useDocsRef.current, model_id: selectedModel }, {
+      await streamChat(id, { ...body, use_documents: useDocsRef.current, model_id: selectedModelRef.current }, {
         onMeta: (meta) => {
           if (meta.user_message_id != null)
             setMessages((ms) => ms.map((m) => (m.id === PLACEHOLDER_USER ? { ...m, id: meta.user_message_id! } : m)));
@@ -189,7 +197,12 @@ export default function ChatView({ chatId }: { chatId?: string }) {
           </div>
         ) : empty ? (
           <div className="mx-auto flex h-full max-w-3xl flex-col items-center justify-center px-4 py-10">
-            <Logo size={48} />
+            <div className="relative group mb-1">
+              <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-amber-500/20 via-purple-500/20 to-indigo-500/20 blur-md opacity-75" />
+              <div className="relative rounded-2xl border border-amber-500/30 bg-[#0d091a] p-1 shadow-xl">
+                <Logo size={54} />
+              </div>
+            </div>
             <h1 className="mt-4 text-center text-2xl font-semibold">{greeting()}, {user?.name.split(" ")[0]}</h1>
             <p className="mt-1 text-muted">What can I help you with?</p>
             <div className="mt-8 grid w-full gap-3 sm:grid-cols-2">

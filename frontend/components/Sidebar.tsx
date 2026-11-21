@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Archive, FileText, LogOut, MessageSquare, Pencil, Plus, Search, Settings, Trash2 } from "lucide-react";
+import { Archive, FileText, LogOut, MessageSquare, Pencil, Pin, PinOff, Plus, Search, Settings, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -52,6 +52,22 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
     catch (e) { toast((e as Error).message, "error"); }
   }
 
+  async function togglePin(c: ChatSummary) {
+    const isPinned = !!c.pinned;
+    try {
+      if (isPinned) {
+        await api(`/chats/${c.id}/unpin`, { method: "POST" });
+        toast("Chat unpinned");
+      } else {
+        await api(`/chats/${c.id}/pin`, { method: "POST" });
+        toast("Chat pinned to top");
+      }
+      await refresh();
+    } catch (e) {
+      toast((e as Error).message, "error");
+    }
+  }
+
   async function archive(c: ChatSummary) {
     try {
       await api(`/chats/${c.id}/archive`, { method: "POST" });
@@ -73,7 +89,9 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
     } catch (e) { toast((e as Error).message, "error"); }
   }
 
-  const groups = ORDER.map((g) => [g, chats.filter((c) => groupOf(c) === g)] as const).filter(([, l]) => l.length);
+  const pinnedChats = chats.filter((c) => c.pinned);
+  const regularChats = chats.filter((c) => !c.pinned);
+  const groups = ORDER.map((g) => [g, regularChats.filter((c) => groupOf(c) === g)] as const).filter(([, l]) => l.length);
 
   return (
     <aside className={clsx(
@@ -81,7 +99,11 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
       open ? "translate-x-0" : "-translate-x-full"
     )}>
       <div className="flex items-center gap-2.5 px-4 pt-4">
-        <Logo size={26} /><span className="font-bold tracking-tight text-base">Athena AI</span>
+        <Logo size={30} />
+        <div className="flex flex-col min-w-0">
+          <span className="font-bold tracking-tight text-sm leading-tight text-fg">Athena AI</span>
+          <span className="text-[10px] text-muted leading-tight truncate">Intelligence. Beyond Boundaries.</span>
+        </div>
       </div>
       <div className="space-y-2 p-3">
         <Link href="/chat" onClick={onNavigate} className="btn-outline w-full justify-start"><Plus size={16} /> New chat <kbd className="ml-auto text-xs text-muted">Ctrl+Shift+O</kbd></Link>
@@ -92,9 +114,42 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
       </div>
 
       <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-2" aria-label="Chats">
-        {groups.length === 0 && (
+        {chats.length === 0 && (
           <p className="px-3 py-6 text-center text-sm text-muted">{query ? "No chats match your search." : "No chats yet. Ask something to get started."}</p>
         )}
+
+        {/* Pinned Chats Section */}
+        {pinnedChats.length > 0 && (
+          <div className="mb-3">
+            <p className="px-3 py-1 text-xs font-semibold text-accent flex items-center gap-1.5">
+              <Pin size={12} className="rotate-45 fill-accent" />
+              <span>Pinned</span>
+            </p>
+            {pinnedChats.map((c) => (
+              <div key={c.id} className={clsx("group flex items-center rounded-lg pr-1", params.id === c.id ? "bg-raised" : "hover:bg-raised/60")}>
+                {renaming === c.id ? (
+                  <input autoFocus className="input m-1 !py-1" value={title} onChange={(e) => setTitle(e.target.value)}
+                    onBlur={() => saveRename(c.id)} onKeyDown={(e) => { if (e.key === "Enter") saveRename(c.id); if (e.key === "Escape") setRenaming(null); }} />
+                ) : (
+                  <>
+                    <Link href={`/chat/${c.id}`} onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm">
+                      <Pin size={13} className="shrink-0 text-accent rotate-45 fill-accent/30" />
+                      <span className="truncate font-medium">{c.title}</span>
+                    </Link>
+                    <button className="hidden rounded p-1.5 text-accent hover:text-fg group-hover:block focus:block" aria-label="Unpin chat" title="Unpin chat" onClick={() => togglePin(c)}>
+                      <PinOff size={14} />
+                    </button>
+                    <button className="hidden rounded p-1.5 text-muted hover:text-fg group-hover:block focus:block" aria-label={`Archive ${c.title}`} title="Archive chat" onClick={() => archive(c)}><Archive size={14} /></button>
+                    <button className="hidden rounded p-1.5 text-muted hover:text-fg group-hover:block focus:block" aria-label={`Rename ${c.title}`} title="Rename chat" onClick={() => { setRenaming(c.id); setTitle(c.title); }}><Pencil size={14} /></button>
+                    <button className="hidden rounded p-1.5 text-muted hover:text-danger group-hover:block focus:block" aria-label={`Delete ${c.title}`} title="Delete chat" onClick={() => remove(c)}><Trash2 size={14} /></button>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Regular Ordered Groups */}
         {groups.map(([g, list]) => (
           <div key={g} className="mb-3">
             <p className="px-3 py-1 text-xs font-medium text-muted">{g}</p>
@@ -108,6 +163,9 @@ export function Sidebar({ open, onNavigate }: { open: boolean; onNavigate: () =>
                     <Link href={`/chat/${c.id}`} onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm">
                       <MessageSquare size={14} className="shrink-0 text-muted" /><span className="truncate">{c.title}</span>
                     </Link>
+                    <button className="hidden rounded p-1.5 text-muted hover:text-accent group-hover:block focus:block" aria-label="Pin chat" title="Pin chat to top" onClick={() => togglePin(c)}>
+                      <Pin size={14} className="rotate-45" />
+                    </button>
                     <button className="hidden rounded p-1.5 text-muted hover:text-fg group-hover:block focus:block" aria-label={`Archive ${c.title}`} title="Archive chat" onClick={() => archive(c)}><Archive size={14} /></button>
                     <button className="hidden rounded p-1.5 text-muted hover:text-fg group-hover:block focus:block" aria-label={`Rename ${c.title}`} title="Rename chat" onClick={() => { setRenaming(c.id); setTitle(c.title); }}><Pencil size={14} /></button>
                     <button className="hidden rounded p-1.5 text-muted hover:text-danger group-hover:block focus:block" aria-label={`Delete ${c.title}`} title="Delete chat" onClick={() => remove(c)}><Trash2 size={14} /></button>

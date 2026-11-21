@@ -10,6 +10,7 @@ export type Settings = {
   memory_enabled?: boolean;
   memory_summary?: string;
   archived_chats?: string[];
+  pinned_chats?: string[];
   [key: string]: any;
 };
 export type User = {
@@ -30,6 +31,6 @@ export type Message = {
   feedback: number | null;
   created_at: string;
 };
-export type ChatSummary = { id: string; title: string; created_at: string; updated_at: string };
+export type ChatSummary = { id: string; title: string; created_at: string; updated_at: string; pinned?: boolean };
 export type DocumentItem = { id: string; filename: string; pages: number; chunk_count: number; created_at: string };
 export type SessionItem = { id: string; user_agent: string; created_at: string; current: boolean };

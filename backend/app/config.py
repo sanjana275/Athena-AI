@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "backend/.env"), extra="ignore")
 
     database_url: str = "sqlite:///./chatgpt.db"
     secret_key: str = "dev-secret-change-me"
@@ -15,10 +15,23 @@ class Settings(BaseSettings):
     cookie_samesite: str = "none"  # "none" with secure=True allows cross-domain frontend and API
     session_days: int = 14
 
-    llm_base_url: str = "https://router.huggingface.co/v1"
+    groq_api_key: str = ""
+    openai_api_key: str = ""
+    huggingface_api_key: str = ""
+    gemini_api_key: str = ""
+
+    llm_base_url: str = "https://api.groq.com/openai/v1"
     llm_api_key: str = ""
-    llm_model: str = "Qwen/Qwen2.5-72B-Instruct"
-    llm_max_context_chars: int = 24000
+    llm_model: str = "openai/gpt-oss-120b"
+    llm_max_context_chars: int = 40000
+
+    @property
+    def effective_llm_api_key(self) -> str:
+        return self.llm_api_key or self.groq_api_key or ""
+
+    @property
+    def effective_llm_base_url(self) -> str:
+        return self.llm_base_url or "https://api.groq.com/openai/v1"
 
     embed_provider: str = "fastembed"  # "fastembed" | "openai"
     embed_model: str = "BAAI/bge-small-en-v1.5"
@@ -42,9 +55,9 @@ class Settings(BaseSettings):
 
     @property
     def sqlalchemy_url(self) -> str:
-        url = self.database_url
-        if url.startswith("sqlite"):
-            return url
+        url = (self.database_url or "").strip()
+        if not url or url.startswith("sqlite"):
+            return url or "sqlite:///./chatgpt.db"
         # Render / Heroku / Neon style URLs
         if url.startswith("postgres://"):
             url = "postgresql://" + url[len("postgres://"):]
@@ -54,7 +67,8 @@ class Settings(BaseSettings):
 
     @property
     def is_sqlite(self) -> bool:
-        return self.database_url.startswith("sqlite")
+        url = (self.database_url or "").strip()
+        return not url or url.startswith("sqlite")
 
     @property
     def google_redirect(self) -> str:
