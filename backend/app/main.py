@@ -34,6 +34,8 @@ app.add_middleware(
         "https://athena-ai-fawn.vercel.app",
         "https://academiaai-98b85.web.app",
         "https://academiaai-98b85.firebaseapp.com",
+        "https://linkdin-84f41.web.app",
+        "https://linkdin-84f41.firebaseapp.com",
         "https://athena-ai-86018.web.app",
         "https://athena-ai-86018.firebaseapp.com",
         "https://athena-ai-27a17.web.app",
